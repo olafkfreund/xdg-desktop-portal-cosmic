@@ -187,14 +187,17 @@ impl RemoteDesktop {
         options: HashMap<String, zvariant::OwnedValue>,
     ) -> PortalResponse<CreateSessionResult> {
         let session_data = SessionData::default();
-        connection
+        if let Err(err) = connection
             .object_server()
             .at(
                 &session_handle,
                 crate::Session::new(session_data, |session_data| session_data.close()),
             )
             .await
-            .unwrap();
+        {
+            log::error!("Failed to register session object: {}", err);
+            return PortalResponse::Other;
+        }
         PortalResponse::Success(CreateSessionResult {
             session_id: session_handle
                 .as_str()

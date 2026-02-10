@@ -100,11 +100,15 @@ pub async fn show_remotedesktop_prompt(
         tx,
         capture_sources: Default::default(),
     };
-    subscription_tx
+    if subscription_tx
         .send(crate::subscription::Event::RemoteDesktop(args))
         .await
-        .unwrap();
-    rx.recv().await.unwrap()
+        .is_err()
+    {
+        log::error!("Failed to send RemoteDesktop event to subscription handler");
+        return None;
+    }
+    rx.recv().await.unwrap_or(None)
 }
 
 async fn load_desktop_entries(locales: &[String]) -> Vec<DesktopEntry> {
