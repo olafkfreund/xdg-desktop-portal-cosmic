@@ -392,7 +392,9 @@ impl RemoteDesktop {
             let eis_client_fd = match create_eis_socket_pair() {
                 Ok((server_fd, client_fd)) => {
                     // Forward the server-side fd to the compositor via D-Bus
-                    if let Err(err) = send_eis_to_compositor(server_fd).await {
+                    // Must use the portal's own connection so the compositor's
+                    // auth check sees the well-known name owner match.
+                    if let Err(err) = send_eis_to_compositor(connection, server_fd).await {
                         log::warn!("Failed to send EIS socket to compositor: {}", err);
                     }
                     Some(client_fd)
@@ -473,10 +475,15 @@ fn create_eis_socket_pair() -> io::Result<(std::os::fd::OwnedFd, zvariant::Owned
 }
 
 /// Send the server-side EIS socket fd to the compositor via D-Bus.
-async fn send_eis_to_compositor(server_fd: std::os::fd::OwnedFd) -> anyhow::Result<()> {
-    let connection = zbus::Connection::session().await?;
+///
+/// Uses the portal's own D-Bus connection so the compositor's auth check
+/// can verify the caller owns the portal's well-known name.
+async fn send_eis_to_compositor(
+    connection: &zbus::Connection,
+    server_fd: std::os::fd::OwnedFd,
+) -> anyhow::Result<()> {
     let proxy = zbus::Proxy::new(
-        &connection,
+        connection,
         "com.system76.CosmicComp.RemoteDesktop",
         "/com/system76/CosmicComp",
         "com.system76.CosmicComp.RemoteDesktop",
