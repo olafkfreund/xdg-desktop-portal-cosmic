@@ -54,5 +54,24 @@ in
     environment.sessionVariables = mkIf cfg.remoteDesktop.enable {
       # libei needs to be discoverable for the RemoteDesktop portal
     };
+
+    # Systemd hardening for the portal user service
+    systemd.user.services.xdg-desktop-portal-cosmic = {
+      serviceConfig = {
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = "read-only";
+        PrivateTmp = true;
+        ProtectKernelTunables = true;
+        ProtectControlGroups = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        RestrictSUIDSGID = true;
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        RestrictRealtime = true;
+        SystemCallArchitectures = "native";
+      };
+    };
   };
 }

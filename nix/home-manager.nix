@@ -44,6 +44,20 @@ in
         Type = "dbus";
         BusName = "org.freedesktop.impl.portal.desktop.cosmic";
         ExecStart = "${cfg.package}/libexec/xdg-desktop-portal-cosmic";
+        # Security hardening
+        NoNewPrivileges = true;
+        ProtectSystem = "strict";
+        ProtectHome = "read-only";
+        PrivateTmp = true;
+        ProtectKernelTunables = true;
+        ProtectControlGroups = true;
+        ProtectKernelModules = true;
+        ProtectKernelLogs = true;
+        RestrictSUIDSGID = true;
+        RestrictNamespaces = true;
+        LockPersonality = true;
+        RestrictRealtime = true;
+        SystemCallArchitectures = "native";
       };
     };
   };

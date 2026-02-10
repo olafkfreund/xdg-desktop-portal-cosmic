@@ -439,6 +439,11 @@ impl RemoteDesktop {
         };
 
         let mut session_data = interface.get_mut().await;
+        if session_data.closed {
+            return Err(zbus::fdo::Error::Failed(
+                "Session is closed".to_string(),
+            ));
+        }
         match session_data.eis_socket_client.take() {
             Some(fd) => Ok(fd),
             None => Err(zbus::fdo::Error::Failed(
