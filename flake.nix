@@ -48,6 +48,7 @@
             pkg-config
             rustPlatform.bindgenHook
             gnumake
+            autoPatchelfHook
           ];
           buildInputs = with pkgs; [
             pipewire
