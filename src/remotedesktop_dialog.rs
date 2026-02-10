@@ -302,18 +302,37 @@ pub fn cancel(
     }
 }
 
-fn permission_text(device_types: u32) -> String {
-    let mut parts = Vec::new();
+fn permission_chips(device_types: u32) -> Vec<cosmic::Element<'static, Msg>> {
+    let mut items = Vec::new();
     if device_types & 1 != 0 {
-        parts.push(fl!("remote-desktop-keyboard"));
+        items.push(device_chip(
+            "input-keyboard-symbolic",
+            fl!("remote-desktop-keyboard"),
+        ));
     }
     if device_types & 2 != 0 {
-        parts.push(fl!("remote-desktop-pointer"));
+        items.push(device_chip(
+            "input-mouse-symbolic",
+            fl!("remote-desktop-pointer"),
+        ));
     }
     if device_types & 4 != 0 {
-        parts.push(fl!("remote-desktop-touchscreen"));
+        items.push(device_chip(
+            "input-touchpad-symbolic",
+            fl!("remote-desktop-touchscreen"),
+        ));
     }
-    parts.join(", ")
+    items
+}
+
+fn device_chip(icon_name: &'static str, label: String) -> cosmic::Element<'static, Msg> {
+    widget::row::with_children(vec![
+        widget::icon::from_name(icon_name).size(16).into(),
+        widget::text::body(label).into(),
+    ])
+    .spacing(4)
+    .align_y(iced::Alignment::Center)
+    .into()
 }
 
 fn output_button_appearance(
@@ -422,22 +441,24 @@ pub(crate) fn view(portal: &CosmicPortal) -> cosmic::Element<'_, Msg> {
         allow_button = allow_button.on_press(Msg::Allow);
     }
 
-    let permissions = permission_text(args.device_types);
-
     let unknown = fl!("unknown-application");
     let app_name = args.app_name.as_deref().unwrap_or(&unknown);
 
     let mut content_children: Vec<cosmic::Element<'_, Msg>> = Vec::new();
 
-    // Permission summary
+    // Permission summary: description text + device icon chips
     content_children.push(
         widget::text(fl!(
             "remote-desktop-access",
             "description",
-            app_name = app_name,
-            permissions = permissions.as_str()
+            app_name = app_name
         ))
         .into(),
+    );
+    content_children.push(
+        widget::row::with_children(permission_chips(args.device_types))
+            .spacing(12)
+            .into(),
     );
 
     // Screen selection (if screencast is included)

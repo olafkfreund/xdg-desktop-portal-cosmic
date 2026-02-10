@@ -33,11 +33,94 @@ struct CreateSessionResult {
     session_id: String,
 }
 
+#[derive(Clone)]
+struct PersistedCaptureSources {
+    pub outputs: Vec<String>,
+    pub toplevels: Vec<String>,
+}
+
+impl PersistedCaptureSources {
+    fn from_capture_sources(
+        wayland_helper: &WaylandHelper,
+        sources: &CaptureSources,
+    ) -> Option<Self> {
+        let mut outputs = Vec::new();
+        for handle in &sources.outputs {
+            let info = wayland_helper.output_info(handle)?;
+            outputs.push(info.name.clone()?);
+        }
+
+        let mut toplevels = Vec::new();
+        let toplevel_infos = wayland_helper.toplevels();
+        for handle in &sources.toplevels {
+            let info = toplevel_infos
+                .iter()
+                .find(|t| t.foreign_toplevel == *handle)?;
+            toplevels.push(info.identifier.clone());
+        }
+
+        Some(Self { outputs, toplevels })
+    }
+
+    fn to_capture_sources(&self, wayland_helper: &WaylandHelper) -> Option<CaptureSources> {
+        let mut outputs = Vec::new();
+        for name in &self.outputs {
+            outputs.push(wayland_helper.output_for_name(name)?);
+        }
+
+        let mut toplevels = Vec::new();
+        let toplevel_infos = wayland_helper.toplevels();
+        for identifier in &self.toplevels {
+            let info = toplevel_infos
+                .iter()
+                .find(|t| t.identifier == *identifier)?;
+            toplevels.push(info.foreign_toplevel.clone());
+        }
+
+        Some(CaptureSources { outputs, toplevels })
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, zvariant::Type)]
+#[zvariant(signature = "(suv)")]
+struct RestoreData {
+    vendor: String,
+    version: u32,
+    data: zvariant::OwnedValue,
+}
+
+impl From<PersistedCaptureSources> for RestoreData {
+    fn from(sources: PersistedCaptureSources) -> RestoreData {
+        RestoreData {
+            vendor: "COSMIC".to_string(),
+            version: 1,
+            data: zvariant::Value::from(zvariant::Structure::from((
+                sources.outputs,
+                sources.toplevels,
+            )))
+            .try_to_owned()
+            .unwrap(),
+        }
+    }
+}
+
+impl TryFrom<&RestoreData> for PersistedCaptureSources {
+    type Error = ();
+    fn try_from(restore_data: &RestoreData) -> Result<Self, ()> {
+        if (&*restore_data.vendor, restore_data.version) != ("COSMIC", 1) {
+            return Err(());
+        }
+        let structure = zvariant::Structure::try_from(&*restore_data.data).map_err(|_| ())?;
+        let (outputs, toplevels) = structure.try_into().map_err(|_| ())?;
+        Ok(PersistedCaptureSources { outputs, toplevels })
+    }
+}
+
 #[derive(zvariant::DeserializeDict, zvariant::Type)]
 #[zvariant(signature = "a{sv}")]
 struct SelectDevicesOptions {
     types: Option<u32>,
-    restore_data: Option<zvariant::OwnedValue>,
+    restore_data: Option<RestoreData>,
     persist_mode: Option<u32>,
 }
 
@@ -47,7 +130,7 @@ struct SelectSourcesOptions {
     types: Option<u32>,
     multiple: Option<bool>,
     cursor_mode: Option<u32>,
-    restore_data: Option<zvariant::OwnedValue>,
+    restore_data: Option<RestoreData>,
     persist_mode: Option<u32>,
 }
 
@@ -56,6 +139,8 @@ struct SelectSourcesOptions {
 struct StartResult {
     devices: u32,
     streams: Vec<(u32, StreamProps)>,
+    persist_mode: Option<u32>,
+    restore_data: Option<RestoreData>,
 }
 
 #[derive(Default)]
@@ -65,6 +150,7 @@ struct SessionData {
     cursor_mode: Option<u32>,
     multiple: bool,
     source_types: BitFlags<SourceType>,
+    persisted_capture_sources: Option<PersistedCaptureSources>,
     eis_socket_client: Option<zvariant::OwnedFd>,
     closed: bool,
 }
@@ -132,6 +218,13 @@ impl RemoteDesktop {
                 let mut session_data = interface.get_mut().await;
                 session_data.device_types =
                     options.types.unwrap_or(DEVICE_KEYBOARD | DEVICE_POINTER);
+                if let Some(restore_data) = &options.restore_data {
+                    if let Ok(persisted) = restore_data.try_into() {
+                        session_data.persisted_capture_sources = Some(persisted);
+                    } else {
+                        log::warn!("unrecognized remote desktop restore data: {:?}", restore_data);
+                    }
+                }
                 PortalResponse::Success(HashMap::new())
             }
             None => PortalResponse::Other,
@@ -155,6 +248,13 @@ impl RemoteDesktop {
                     BitFlags::from_bits_truncate(options.types.unwrap_or(0));
                 if session_data.source_types.is_empty() {
                     session_data.source_types = SourceType::Monitor.into();
+                }
+                if let Some(restore_data) = &options.restore_data {
+                    if let Ok(persisted) = restore_data.try_into() {
+                        session_data.persisted_capture_sources = Some(persisted);
+                    } else {
+                        log::warn!("unrecognized remote desktop restore data: {:?}", restore_data);
+                    }
                 }
                 PortalResponse::Success(HashMap::new())
             }
@@ -180,35 +280,43 @@ impl RemoteDesktop {
                 return PortalResponse::Other;
             };
 
-            let (device_types, cursor_mode, multiple, source_types) = {
+            let (device_types, cursor_mode, multiple, source_types, persisted_capture_sources) = {
                 let session_data = interface.get_mut().await;
                 let device_types = session_data.device_types;
                 let cursor_mode = session_data.cursor_mode.unwrap_or(CURSOR_MODE_HIDDEN);
                 let multiple = session_data.multiple;
                 let source_types = session_data.source_types;
-                (device_types, cursor_mode, multiple, source_types)
+                let persisted_capture_sources = session_data.persisted_capture_sources.clone();
+                (device_types, cursor_mode, multiple, source_types, persisted_capture_sources)
             };
 
-            // Show consent dialog
             let outputs = self.wayland_helper.outputs();
             if outputs.is_empty() {
                 log::error!("No output");
                 return PortalResponse::Other;
             }
 
-            let resp = remotedesktop_dialog::show_remotedesktop_prompt(
-                &self.tx,
-                &session_handle,
-                app_id,
-                device_types,
-                !source_types.is_empty(),
-                multiple,
-                source_types,
-                &self.wayland_helper,
-            )
-            .await;
-            let Some(capture_sources) = resp else {
-                return PortalResponse::Cancelled;
+            // Try to restore previous session; fall back to consent dialog
+            let capture_sources = if let Some(capture_sources) =
+                persisted_capture_sources.and_then(|x| x.to_capture_sources(&self.wayland_helper))
+            {
+                capture_sources
+            } else {
+                let resp = remotedesktop_dialog::show_remotedesktop_prompt(
+                    &self.tx,
+                    &session_handle,
+                    app_id,
+                    device_types,
+                    !source_types.is_empty(),
+                    multiple,
+                    source_types,
+                    &self.wayland_helper,
+                )
+                .await;
+                let Some(capture_sources) = resp else {
+                    return PortalResponse::Cancelled;
+                };
+                capture_sources
             };
 
             // Set up screencast threads for video (reuse ScreenCast infra)
@@ -301,9 +409,16 @@ impl RemoteDesktop {
                 session_data.eis_socket_client = eis_client_fd;
             }
 
+            let persisted_capture_sources = PersistedCaptureSources::from_capture_sources(
+                &self.wayland_helper,
+                &capture_sources,
+            );
+
             PortalResponse::Success(StartResult {
                 devices: device_types,
                 streams,
+                persist_mode: None,
+                restore_data: persisted_capture_sources.map(Into::into),
             })
         })
         .await
