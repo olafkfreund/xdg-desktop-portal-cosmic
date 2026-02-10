@@ -219,8 +219,10 @@ impl RemoteDesktop {
         match crate::session_interface::<SessionData>(connection, &session_handle).await {
             Some(interface) => {
                 let mut session_data = interface.get_mut().await;
+                // Mask to valid device type bits only (keyboard, pointer, touchscreen).
+                let raw_types = options.types.unwrap_or(DEVICE_KEYBOARD | DEVICE_POINTER);
                 session_data.device_types =
-                    options.types.unwrap_or(DEVICE_KEYBOARD | DEVICE_POINTER);
+                    raw_types & (DEVICE_KEYBOARD | DEVICE_POINTER | DEVICE_TOUCHSCREEN);
                 if let Some(restore_data) = &options.restore_data {
                     if let Ok(persisted) = restore_data.try_into() {
                         session_data.persisted_capture_sources = Some(persisted);
@@ -316,6 +318,7 @@ impl RemoteDesktop {
                 )
                 .await;
                 let Some(capture_sources) = resp else {
+                    log::info!("Remote desktop access denied by user");
                     return PortalResponse::Cancelled;
                 };
                 capture_sources
@@ -411,16 +414,13 @@ impl RemoteDesktop {
                 session_data.eis_socket_client = eis_client_fd;
             }
 
-            let persisted_capture_sources = PersistedCaptureSources::from_capture_sources(
-                &self.wayland_helper,
-                &capture_sources,
-            );
-
             PortalResponse::Success(StartResult {
                 devices: device_types,
                 streams,
                 persist_mode: None,
-                restore_data: persisted_capture_sources.map(Into::into),
+                // Never return restore data for RemoteDesktop sessions.
+                // Input injection is too sensitive to allow any restore-based shortcuts.
+                restore_data: None,
             })
         })
         .await
@@ -435,19 +435,21 @@ impl RemoteDesktop {
         let Some(interface) =
             crate::session_interface::<SessionData>(connection, &session_handle).await
         else {
-            return Err(zbus::fdo::Error::Failed("Session not found".to_string()));
+            return Err(zbus::fdo::Error::Failed(
+                "EIS connection unavailable".to_string(),
+            ));
         };
 
         let mut session_data = interface.get_mut().await;
         if session_data.closed {
             return Err(zbus::fdo::Error::Failed(
-                "Session is closed".to_string(),
+                "EIS connection unavailable".to_string(),
             ));
         }
         match session_data.eis_socket_client.take() {
             Some(fd) => Ok(fd),
             None => Err(zbus::fdo::Error::Failed(
-                "No EIS connection available. Call Start first.".to_string(),
+                "EIS connection unavailable".to_string(),
             )),
         }
     }
