@@ -431,6 +431,7 @@ impl RemoteDesktop {
         &self,
         #[zbus(connection)] connection: &zbus::Connection,
         session_handle: zvariant::ObjectPath<'_>,
+        app_id: String,
         options: HashMap<String, zvariant::OwnedValue>,
     ) -> zbus::fdo::Result<zvariant::OwnedFd> {
         let Some(interface) =
