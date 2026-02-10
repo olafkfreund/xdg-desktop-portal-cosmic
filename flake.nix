@@ -41,6 +41,7 @@
               ./Cargo.lock
               ./Makefile
               ./i18n.toml
+              ./i18n
             ];
           };
           nativeBuildInputs = with pkgs; [
@@ -53,7 +54,9 @@
             libxkbcommon
             libglvnd
             glib
+            gst_all_1.gstreamer
             libei
+            libgbm
             wayland
             fontconfig
             freetype
@@ -69,16 +72,17 @@
         cargoArtifacts = craneLib.buildDepsOnly pkgDef;
         xdg-desktop-portal-cosmic = craneLib.buildPackage (pkgDef // {
           inherit cargoArtifacts;
+          doNotPostBuildInstallCargoBinaries = true;
 
           buildPhase = ''
             runHook preBuild
-            make CARGO_TARGET_DIR=$CARGO_TARGET_DIR_PREFIX DEBUG=0 VENDOR=0
+            make DEBUG=0 VENDOR=0
             runHook postBuild
           '';
 
           installPhase = ''
             runHook preInstall
-            make prefix=$out libexecdir=$out/libexec CARGO_TARGET_DIR=$CARGO_TARGET_DIR_PREFIX DEBUG=0 install
+            make prefix=$out libexecdir=$out/libexec DEBUG=0 install
             runHook postInstall
           '';
         });
