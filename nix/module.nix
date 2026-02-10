@@ -56,7 +56,8 @@ in
     };
 
     # Systemd hardening for the portal user service
-    systemd.user.services.xdg-desktop-portal-cosmic = {
+    # The actual service is D-Bus activated as org.freedesktop.impl.portal.desktop.cosmic
+    systemd.user.services."org.freedesktop.impl.portal.desktop.cosmic" = {
       serviceConfig = {
         NoNewPrivileges = true;
         ProtectSystem = "strict";
