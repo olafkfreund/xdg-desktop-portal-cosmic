@@ -283,14 +283,13 @@ impl RemoteDesktop {
                 return PortalResponse::Other;
             };
 
-            let (device_types, cursor_mode, multiple, source_types, persisted_capture_sources) = {
+            let (device_types, cursor_mode, multiple, source_types) = {
                 let session_data = interface.get_mut().await;
                 let device_types = session_data.device_types;
                 let cursor_mode = session_data.cursor_mode.unwrap_or(CURSOR_MODE_HIDDEN);
                 let multiple = session_data.multiple;
                 let source_types = session_data.source_types;
-                let persisted_capture_sources = session_data.persisted_capture_sources.clone();
-                (device_types, cursor_mode, multiple, source_types, persisted_capture_sources)
+                (device_types, cursor_mode, multiple, source_types)
             };
 
             let outputs = self.wayland_helper.outputs();
@@ -299,12 +298,12 @@ impl RemoteDesktop {
                 return PortalResponse::Other;
             }
 
-            // Try to restore previous session; fall back to consent dialog
-            let capture_sources = if let Some(capture_sources) =
-                persisted_capture_sources.and_then(|x| x.to_capture_sources(&self.wayland_helper))
-            {
-                capture_sources
-            } else {
+            // Always show consent dialog for RemoteDesktop sessions.
+            // Unlike ScreenCast (view-only), RemoteDesktop grants input injection
+            // (keyboard/mouse/touch), which is too sensitive to skip consent based
+            // on restore data alone — output names are guessable and restore data
+            // can be crafted by any D-Bus client.
+            let capture_sources = {
                 let resp = remotedesktop_dialog::show_remotedesktop_prompt(
                     &self.tx,
                     &session_handle,
