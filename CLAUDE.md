@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-XDG Desktop Portal backend for the COSMIC Desktop Environment. Implements the `org.freedesktop.impl.portal.desktop.cosmic` DBus service, providing system integration for sandboxed applications (file chooser, screenshots, screen sharing, access dialogs, appearance settings).
+XDG Desktop Portal backend for the COSMIC Desktop Environment. Implements the `org.freedesktop.impl.portal.desktop.cosmic` DBus service, providing system integration for sandboxed applications (file chooser, screenshots, screen sharing, remote desktop with input injection, access dialogs, appearance settings).
 
 ## Build Commands
 
@@ -65,6 +65,8 @@ DBus request arrives
 | `screencast.rs` | ScreenCast DBus interface — session creation, source selection |
 | `screencast_thread.rs` | PipeWire stream setup, DMA-buf/SHM frame capture, video streaming |
 | `screencast_dialog.rs` | Screen share source selection UI |
+| `remotedesktop.rs` | RemoteDesktop DBus interface — session, device selection, EIS input forwarding |
+| `remotedesktop_dialog.rs` | Remote desktop consent dialog UI with device/screen selection |
 | `file_chooser.rs` | File open/save dialogs using `cosmic-files` |
 | `access.rs` | Permission request dialogs |
 | `wayland/mod.rs` | `WaylandHelper` — shared Wayland state (outputs, toplevels, screencopy, GBM) |
@@ -81,7 +83,12 @@ Registered at `/org/freedesktop/portal/desktop`:
 - `org.freedesktop.impl.portal.FileChooser` — file open/save
 - `org.freedesktop.impl.portal.Screenshot` — screen capture
 - `org.freedesktop.impl.portal.ScreenCast` — screen sharing (PipeWire)
+- `org.freedesktop.impl.portal.RemoteDesktop` — remote control with EIS input injection (keyboard, pointer, touchscreen)
 - `org.freedesktop.impl.portal.Settings` — appearance (color-scheme, accent-color, contrast)
+
+### RemoteDesktop & EIS
+
+The RemoteDesktop portal extends ScreenCast sessions with input injection via EIS (Emulated Input Server). The `ConnectToEIS` method creates a Unix socket pair: the server-side fd is forwarded to `com.system76.CosmicComp.RemoteDesktop` via DBus, and the client-side fd is returned to the requesting application. The consent dialog is always shown (restore data is never used to skip it) to prevent unauthorized remote control. Device types (keyboard, pointer, touchscreen) are selected during `SelectDevices` and displayed in the consent dialog.
 
 ### Cancellation Pattern
 
@@ -99,6 +106,7 @@ Portal requests use `Request::run()` which wraps the task in `futures::future::a
 - **cosmic-files** (pop-os) — File chooser dialog UI with GVFS support
 - **cosmic-client-toolkit / cosmic-protocols** (pop-os) — Wayland screencopy, DMA-buf, output/toplevel info
 - **gbm** — GPU buffer management for zero-copy screen capture
+- **reis** — EIS (Emulated Input Server) protocol client for remote desktop input injection
 
 ## i18n
 
