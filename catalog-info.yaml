@@ -7,6 +7,7 @@ metadata:
   name: xdg-desktop-portal-cosmic
   description: ""
   annotations:
+    backstage.io/techdocs-ref: dir:.
     github.com/project-slug: olafkfreund/xdg-desktop-portal-cosmic
   tags: []
 spec:
